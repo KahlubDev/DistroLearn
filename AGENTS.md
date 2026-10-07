@@ -43,3 +43,30 @@ Write like an engineer explaining something to a teammate.
 
 Decisions live in `docs/adr/`. Each ADR is accepted, proposed, or superseded.
 Read the ADRs before planning work.
+
+## Ticket workflow
+
+Branch from `main`, open a PR, and do not merge it.
+
+```
+git checkout main
+git pull
+git checkout -b feature/NNN-short-name
+```
+
+Branch names: `feature/NNN-short-name`, or `fix/NNN-short-name` for a defect.
+Commit as you go. Push the branch and open a PR against `main`. Merging is a human
+decision.
+
+## Definition of Done
+
+A ticket is done when all of these hold:
+
+- [ ] Code compiles (`make build`).
+- [ ] Tests pass (`make test`).
+- [ ] New tests exist for the change. A bug fix has a test that fails without it.
+- [ ] Lint and typecheck pass (`make lint`).
+- [ ] No unrelated changes in the diff.
+- [ ] Docs updated where behaviour or a decision changed.
+
+`make check` runs lint, typecheck, test, and build for web and Go.
