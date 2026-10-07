@@ -1,77 +1,62 @@
 # Roadmap
 
-Ordered epics for the MVP described in `docs/product/mvp.md`. Each epic has one goal.
-No dates: sizing depends on whether 5k concurrent labs is peak or sustained average,
-which is still open (see C2 in `docs/architecture/system.md`).
-
-Order is driven by dependency, not by perceived value. The lab runtime comes before
-the learning surface because every MVP feature needs somewhere to run.
+Ordered epics for the MVP in `docs/product/mvp.md`. No dates: sizing lands in E6
+(ADR 0002).
 
 ## Epics
 
 **E1. Cluster and delivery foundation**
-Stand up the cluster, node pools, Cilium, gVisor runtime class, Terraform, and the one
-Helm chart with a working deploy path.
+Cluster, node pools, Cilium, gVisor runtime class, Terraform, and the one Helm chart.
 
 **E2. Lab runtime**
-Provision a per-namespace gVisor sandbox to a usable shell in seconds, with hard TTL,
-reaping, and teardown, so learners can be in a working environment.
+Per-namespace gVisor sandbox to a usable shell in seconds, with hard TTL, reaping, and
+teardown.
 
 **E3. Identity and tenancy**
-Cognito sign-in, institutions, the three roles, and PostgreSQL RLS, so a learner
-belongs to an institution before any lab exists.
+Cognito sign-in, institutions, three roles, PostgreSQL RLS, and the `region` field on
+tenants.
 
 **E4. Tenant-safe terminal**
-Single-use WebSocket ticket relayed through the API, so a learner gets a terminal with
-no cluster credential in the browser.
+Single-use WebSocket ticket relayed through the API, so no cluster credential reaches
+the browser.
 
 **E5. First lab end to end**
-One distributed-systems topic shipped as a concept page plus a working lab plus one
-automated verification check, proving the product loop before it is built at scale.
+One topic as a concept page, a working lab, and one verification check. First point the
+product can be judged.
 
-**E6. Lab scale and lifecycle hardening**
-5k concurrent labs, per-tenant concurrency caps, cost alerting, and the gVisor boot-time
-benchmark that validates the vision target.
+**E6. Peak scale and lifecycle hardening**
+Size for 5k concurrent labs as a peak, per-tenant caps, cost alerting, and the gVisor
+boot-time benchmark against p50 under 10s.
 
-**E7. Verification engine**
-Generalize checks to assert on real system state across lab topologies, so completion
-means demonstrated work rather than a submitted answer.
+**E7. Verification runner**
+Checks assert on real system state across lab topologies, running from a runner pod
+outside the learner's lab.
 
 **E8. Progress tracking**
 Per-learner records of started labs and verified objectives, visible to the learner and
 to instructors at cohort level.
 
 **E9. EU data residency**
-Tenant-selectable EU region for tenant data, including the residency scope decision for
-lab artifacts and sandbox logs.
+Second EU region behind the existing `region` field. Post-MVP under ADR 0002. Residency
+scope for lab artifacts and logs is decided first.
 
 **E10. Security and tenancy audit**
-Independent review of auth, tenancy, and lab isolation before real student data enters
-the system.
+Independent review of auth, tenancy, and lab isolation before real student data enters.
 
-## Dependencies worth noting
+## Dependencies
 
-- E5 depends on E2, E3, and E4. It is the first point at which the product can be
-  judged, and it is deliberately early rather than last.
-- E6 depends on E2, and its sizing depends on the peak-versus-sustained decision.
-- E9 depends on the residency scope decision, which changes E2's storage design if lab
-  artifacts and logs must be in-region.
-- E10 is placed last but must run before launch. If its findings require rework, E6 and
-  E9 are where the rework lands.
+- E5 needs E2, E3, E4.
+- E6 needs E2.
+- E9 changes E2's storage design if lab artifacts and logs must be in-region.
+- E10 runs before launch. Findings land in E6 and E9.
 
 ## Not in the MVP
 
-The exclusions in `docs/product/mvp.md` are binding. No epic above delivers billing,
-certification, forums, live sessions, instructor-authored labs, native apps, offline
-mode, grading, SSO/SCIM, self-hosting, or extra regions. A pull request that adds one
-of these is out of scope regardless of how small it looks.
+Exclusions in `docs/product/mvp.md` are binding: no billing, certification, forums,
+live sessions, instructor-authored labs, native apps, offline mode, grading, SSO/SCIM,
+self-hosting, or a second region.
 
 ## Blocked on decisions
 
-Three open items gate parts of this roadmap, and none is an engineering task:
-
-1. Peak versus sustained for 5k concurrent labs. Gates E6 sizing.
-2. Residency scope for lab artifacts and sandbox logs. Gates E9, and may force E2
-   changes.
-3. Where verification runs and with what privileges. Gates E7, and shapes the lab
-   network policy.
+One. No observability stack is chosen. It gates no epic, but log pipelines are a named
+tenancy leak path, so E10 will find it.
