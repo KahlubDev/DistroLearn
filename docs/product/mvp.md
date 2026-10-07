@@ -1,67 +1,52 @@
-# DistroLearn MVP
+# MVP
 
-Scope of the first shippable version. Target scale: 50k MAU, 5k concurrent labs,
-multi-tenant by institution, EU data residency as a tenant option.
+First shippable version. Decisions live in `docs/adr/`.
 
-## In MVP (5 features)
+## In MVP
 
-### 1. Hands-on sandbox labs
+### 1. Sandbox labs
 
-Ephemeral, isolated lab environments (single-node and small multi-node topologies).
-Boot to a usable shell in seconds, offer a terminal plus service endpoints, and tear
-down automatically on exit or timeout. This is the core of the product; everything
-else exists to get a learner into a lab and prove they did something.
+Ephemeral isolated environments, single-node and small multi-node. Boot to a usable
+shell in seconds, terminal plus service endpoints, teardown on exit or timeout.
 
 ### 2. Concept pages paired with labs
 
-Each topic has a written concept page (targeted, not textbook-length) and a linked
-lab. Reading and doing are the same unit of work.
+Each topic has a written page and a linked lab. Reading and doing are one unit of work.
 
 ### 3. Automated work verification
 
-The lab checks the learner's actual system state, not a multiple-choice answer.
-Examples: `kill -9` a node and assert the service stayed available; scale a
-partition and assert quorum held; check a replication factor is actually 3.
-Passing a check marks the objective complete.
+Checks assert on real system state: `kill -9` a node and assert availability held, scale
+a partition and assert quorum held, confirm a replication factor is 3. Checks run from a
+runner pod outside the learner's lab (ADR 0002).
 
 ### 4. Progress tracking
 
-Per-learner record of started labs, verified objectives, and completion. Learners see
-their own progress; instructors see cohort progress.
+Started labs, verified objectives, completion. Learners see their own; instructors see
+cohort.
 
-### 5. Multi-tenant institutions with EU data residency option
+### 5. Multi-tenant institutions with a region field
 
-Institution as tenant with isolated data. Admin, instructor, and learner roles.
-Tenant-selectable EU storage region for learner records and progress.
+Institution as tenant with isolated data. Admin, instructor, learner roles. Every tenant
+carries a `region` field, set to the launch region for all MVP tenants (ADR 0002).
 
 ## NOT in MVP
 
-Explicitly out of scope. Listed so nobody adds it as a "small extra".
-
-- **Payments and billing.** No invoicing, no self-serve checkout, no per-seat pricing.
-  Sales and contracts handle it.
-- **Certification or credentialing.** No certificates, no exam engine, no accreditation.
-- **Discussion forums and chat.** No per-lab comments, threads, or messaging.
-- **Live or instructor-led sessions.** No synchronous classrooms, screen sharing, or
-  scheduled cohorts.
-- **Custom labs authored by instructors.** No lab builder or custom exercise authoring.
-  Lab content ships with the product.
+- **Payments.** Sales and contracts handle it.
+- **Certification.** No certificates, exam engine, or accreditation.
+- **Forums and chat.**
+- **Live sessions.** No synchronous classrooms or screen sharing.
+- **Instructor-authored labs.** No lab builder. Content ships with the product.
 - **Native mobile apps.** Responsive web only.
-- **Offline mode.** Learning requires a live sandbox.
-- **Grading curve, attendance, or LMS features.** No weighted assignments, no proctoring.
-- **SSO and SCIM.** Email plus password and a tenant admin-managed roster are enough
-  for MVP. SAML/OIDC and directory sync are post-MVP.
-- **Self-hosted or on-prem deployment.** SaaS only, including for institutions.
-- **More than one non-EU region.** EU is the first non-US region; no additional
-  geographic options in MVP.
-- **Cohort analytics beyond completion.** No time-on-task leaderboards, drop-off
-  funnels, or retention dashboards.
+- **Offline mode.** Labs need a live sandbox.
+- **Grading, attendance, LMS features.**
+- **SSO and SCIM.** Email, password, admin-managed roster.
+- **Self-hosting.** SaaS only.
+- **A second region.** MVP is single-region. The `region` field makes the second EU
+  cluster a data change, not a migration (ADR 0002).
+- **Cohort analytics beyond completion.** No leaderboards or funnels.
 
-## Open questions
+## Resolved
 
-These need an answer before implementation planning. They are product decisions,
-not for an implementer to settle.
-
-- Sandbox isolation model and how far it is shared between concurrent labs.
-- EU residency scope: learner records only, or lab artifacts and sandbox logs too.
-- Whether 5k concurrent labs is sized on worst-case peak or sustained average.
+Isolation: gVisor, one namespace per lab, default-deny egress
+(`docs/research/002-lab-isolation.md`). Concurrency: 5k peak. Residency: single-region,
+second cluster post-MVP. Verification: separate runner pod. All in ADR 0002.
