@@ -15,12 +15,16 @@ Both are dated 2026-10-08. Neither records a supersedes relation.
 
 ## Decisions still missing
 
-**Database.** ADR 0001 names PostgreSQL 18.6, managed, but never names the managed
-provider. `001-stack.md` links the RDS release calendar, which implies AWS RDS without
-saying so. Also undecided: the migration tool, the connection pooler, and how RLS reads
-the current tenant. `tenancy.md` says the tenant is attached to the query and RLS
-enforces it independently, without naming the mechanism. That choice decides whether a
-connection left open between requests can read another tenant's rows.
+**Database. Answered.** RDS for PostgreSQL, keeping it on AWS beside Cognito. The
+instance class and failover mode are still open and need an ADR. `001-stack.md` already
+links the RDS release calendar, so this names the service the ADR left implicit.
+
+The RLS mechanism is answered too: `SET LOCAL app.tenant_id` inside every transaction,
+one app role, never one role per tenant. The setting resets at commit, so a connection
+returned to the pool carries no tenant. Every request wraps its queries in a
+transaction.
+
+Still open: the migration tool and the connection pooler.
 
 **Auth provider.** Cognito with email and password is settled. Undecided: hosted UI
 against the self-hosted UI SDK, and whether the API validates JWTs against the JWKS
@@ -36,11 +40,12 @@ needs recording.
 **Lab runtime.** gVisor is settled. Undecided: the image a lab runs, and whether lab
 definitions live in a column on the lab record or in a custom resource.
 
-**Region routing.** ADR 0002 settles MVP as single-region, with a `region` column that
-routes nothing. Phase 9 of the plan asks for region-aware storage and routing, which
-ADR 0002 defers to post-MVP. Also undecided: the launch region among eu-central-1,
-eu-west-1, and eu-north-1, and whether lab artifacts and logs must sit in-region
-(roadmap E9 defers this).
+**Region routing. Answered.** ADR 0002 stands. MVP stays single-region and the `region`
+column routes nothing. Phase 9 narrows to region-aware tagging and the residency scope
+for lab artifacts and logs inside the one region. Routing waits for a post-MVP ADR.
+
+Still open: the launch region among eu-central-1, eu-west-1, and eu-north-1, and
+whether lab artifacts and logs must sit in-region (roadmap E9 defers this).
 
 **Observability.** No logging, metrics, or tracing stack is chosen. `system.md` names
 this as a security gap, and `roadmap.md` lists it as the one blocked decision.
@@ -64,7 +69,9 @@ this as a security gap, and `roadmap.md` lists it as the one blocked decision.
 
 ## Questions for a human
 
-1. Managed Postgres: RDS or something else. ADR 0001 says managed only.
-2. How does RLS learn the current tenant: `SET LOCAL` per transaction, or one role per
-   tenant?
-3. Phase 9 and ADR 0002 disagree on region routing. Which wins?
+All three are answered (database, RLS mechanism, Phase 9 scope) and recorded above.
+Nothing else in this file blocks Phase 3 planning.
+
+Two items need an ADR rather than a plan: the tenancy design in
+`docs/architecture/tenancy.md`, which is written as settled but carries no status line,
+and the observability gap named in `system.md` and `roadmap.md`.
