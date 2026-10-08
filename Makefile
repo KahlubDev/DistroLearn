@@ -5,7 +5,7 @@ check: lint test build
 lint:
 	pnpm lint
 	pnpm typecheck
-	cd services && gofmt -l . && go vet ./...
+	cd services && test -z "$$(gofmt -l .)" && go vet ./...
 
 test:
 	pnpm test
