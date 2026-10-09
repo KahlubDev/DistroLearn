@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -38,6 +41,94 @@ func TestNatsConnReportsOK(t *testing.T) {
 	}
 }
 
+// TestStopSignalsCoverSigtermAndSigint pins the signals that start a graceful shutdown.
+// SIGTERM is what a Kubernetes pod deletion sends, SIGINT is Ctrl-C. Losing either means
+// the process is killed with in-flight lab teardown messages cut off.
+func TestStopSignalsCoverSigtermAndSigint(t *testing.T) {
+	t.Parallel()
+
+	want := map[os.Signal]bool{syscall.SIGTERM: false, syscall.SIGINT: false}
+	for _, sig := range stopSignals {
+		if _, ok := want[sig]; ok {
+			want[sig] = true
+		}
+	}
+	for sig, found := range want {
+		if !found {
+			t.Errorf("stopSignals is missing %v, so the process would not shut down gracefully on it", sig)
+		}
+	}
+}
+
+// TestServeStopsOnCancelledContext covers the shutdown path a stop signal triggers:
+// cancelling the context is what signal.NotifyContext does on SIGTERM or SIGINT.
+func TestServeStopsOnCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errc := make(chan error, 1)
+	go func() { errc <- serve(ctx, "127.0.0.1:0", http.NewServeMux()) }()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatalf("serve() = %v, want nil", err)
+		}
+	case <-time.After(shutdownTimeout + 5*time.Second):
+		t.Fatal("serve() did not return after the context was cancelled")
+	}
+}
+
+// TestServeAnswersRequestsBeforeShutdown confirms the server is actually serving during
+// its life, so the shutdown test above is not passing against a server that never bound.
+func TestServeAnswersRequestsBeforeShutdown(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errc := make(chan error, 1)
+	go func() { errc <- serve(ctx, addr, mux) }()
+
+	url := "http://" + addr + "/ping"
+	var lastErr error
+	for range 50 {
+		resp, err := http.Get(url) //nolint:noctx // short local probe in a test
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("GET /ping = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			cancel()
+			if err := <-errc; err != nil {
+				t.Fatalf("serve() = %v, want nil", err)
+			}
+			return
+		}
+		lastErr = err
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("server never answered /ping: %v", lastErr)
+}
+
 // TestRunServesAndShutsDownCleanly replaces the skeleton test, which called a run() that
 // returned immediately. run() now blocks serving, so it is cancelled instead.
 func TestRunServesAndShutsDownCleanly(t *testing.T) {
@@ -58,7 +149,7 @@ func TestRunServesAndShutsDownCleanly(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run() = %v, want nil", err)
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(shutdownTimeout + 5*time.Second):
 		t.Fatal("run() did not return after the context was cancelled")
 	}
 }
