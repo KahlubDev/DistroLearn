@@ -19,7 +19,7 @@ chart, preferring managed services, avoiding lock-in where it is cheap.
 | Backend | Go 1.27.1 |
 | API | REST with OpenAPI 3.2.1; WebSocket for terminal I/O only |
 | Database | PostgreSQL 18.6, managed, row-level security per tenant |
-| Queue and events | NATS JetStream 2.15.0 |
+| Queue and events | NATS JetStream 2.15.0, self-hosted in the cluster |
 | Auth | AWS Cognito, managed, email and password |
 | IaC and CI | Terraform 1.16.5, one Helm chart with Helm 4.3.0, Argo CD 3.5.4, GitHub Actions |
 | Sandbox runtime | gVisor (`runtimeClassName: gVisor`) |
@@ -88,6 +88,24 @@ data path.
 - One cluster cannot hold two regions. ADR 0002 settles MVP as single-region with a
   `region` field on tenants.
 
+## Change log
+
+**2026-10-09: queue and events moved from managed to self-hosted.** The decision table
+above now reads NATS JetStream 2.15.0, self-hosted in the cluster. `docs/research/001-stack.md`
+preferred a managed offering, and that preference stands. It could not be met: AWS has no
+first-party NATS service, and the managed option, Synadia Cloud, listed ap-east-2,
+aws-euwest-1, aws-useast-2, and aws-uswest-2 on 2026-10-09, with no eu-central-1.
+
+The launch region is eu-central-1 (ADR 0004), so a managed bus would have put bus events in
+eu-west-1 while tenant data stayed in Frankfurt. The bus carries tenant identifiers, which
+makes that a residency question. Self-hosting in the Frankfurt cluster keeps everything in
+one region and accepts the cost below.
+
+Revisit when Synadia Cloud lists eu-central-1, or any other managed NATS offering does.
+We own JetStream upgrades, its storage, and its failover from then on, which is the cost
+being traded away. Backup and restore for stream data is ours too, and Synadia's managed
+tier does not cover it either, so self-hosting does not lose backups specifically.
+
 ## Alternatives considered
 
 | Layer | Rejected | Reason |
@@ -109,7 +127,8 @@ data path.
 
 Revisit when a lab type needs to run hostile code (Kata), SSO or SCIM enters
 scope (Cognito against Keycloak), the second EU region is commissioned, or the
-boot-time target proves unreachable under gVisor.
+boot-time target proves unreachable under gVisor. For the queue, revisit when a managed
+NATS offering lists eu-central-1 (see the 2026-10-09 change log).
 
 ## Sources
 
