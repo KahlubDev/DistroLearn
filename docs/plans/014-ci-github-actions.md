@@ -14,7 +14,8 @@ GitHub Actions runs `make check` on every push and pull request.
 
 `.github/workflows/ci.yml` (new).
 
-One job on `ubuntu-latest`, triggered on `push` to `main` and on `pull_request`.
+One job on `ubuntu-24.04` (pinned 2026-10-09), triggered on `push` to `main` and on
+`pull_request`.
 
 - Node 24.21.0 from `.nvmrc`, pnpm 12.10.1 via `corepack enable` so the version comes
   from `packageManager` rather than a second hardcoded number.
@@ -26,6 +27,9 @@ One job on `ubuntu-latest`, triggered on `push` to `main` and on `pull_request`.
 Do not add a separate `gofmt` or `go vet` step. `make lint` covers both, and the
 `test -z "$(gofmt -l .)"` fix from `docs/reviews/010-scaffold.md` already makes an
 unformatted file fail the build.
+
+`workflow_dispatch` stays because the red-run probe depended on it: verifying the gofmt
+failure needed a run against a branch with no pull request, which no other trigger allows.
 
 ## Tests to add
 
