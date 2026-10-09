@@ -31,8 +31,12 @@ func natsConn(context.Context) error {
 	return nil
 }
 
+// version is stamped at build time with
+// -ldflags "-X main.version=$(git rev-parse --short HEAD)".
+var version = "dev"
+
 func main() {
-	slog.Info("workers starting")
+	slog.Info("workers starting", "version", version)
 
 	// NotifyContext cancels ctx on the first stop signal and restores the default
 	// behaviour afterwards. Without it SIGTERM kills the process outright and any

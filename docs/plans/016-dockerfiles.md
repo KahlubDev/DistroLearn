@@ -58,3 +58,36 @@ available in every environment and this ticket should not gate a local run:
 - No image copies `.git` or a host `node_modules`.
 - Pinned base images, no `latest` tag.
 - `make check` still passes. Adding Dockerfiles must not disturb the Go or web builds.
+
+## Downstream requirements
+
+**`terminationGracePeriodSeconds` must stay above the 10 second `shutdownTimeout` in both
+services.** Both the API and the workers bound their graceful drain with a package
+constant `shutdownTimeout = 10 * time.Second`. Kubernetes sends SIGTERM, waits for
+`terminationGracePeriodSeconds`, then sends SIGKILL. If that grace period is 10 or less,
+SIGKILL lands before the drain finishes and in-flight terminal and lab teardown traffic is
+cut mid-stream, which is the failure the drain was added to prevent.
+
+Set it to 30 or more in the Helm chart. Anything at or below 10 silently disables the
+graceful shutdown that `services/api/cmd/api/main.go` and
+`services/workers/cmd/workers/main.go` implement.
+
+## Built differently from the plan, 2026-10-09
+
+**Base images are pinned by digest, not version tag.** The plan says pin exactly. A
+version tag is a mutable pointer, so `golang:1.27.1` can be repushed under the same name.
+Digests are the only exact pin, and they are recorded with the registry that served them.
+
+**The web image is built from the repository root, not `apps/web`.** This is a pnpm
+workspace, so `pnpm install --frozen-lockfile` needs the root `pnpm-lock.yaml` and the
+sibling package manifests. An `apps/web`-only context cannot satisfy it. `.dockerignore`
+exists at the root, which is the context actually used, and also at `apps/web` for anyone
+who builds that way.
+
+**`apps/web/public/` was created.** Next.js does not create it, and the image copies it,
+so the build would fail without it. Holds a `.gitkeep`.
+
+**A `version` variable was added to both `main.go` files.** The plan asks for
+`-X main.version=...`, which is silently ignored by the linker when no such variable
+exists. It now exists, defaults to `dev`, and is logged at startup, so a running container
+reports which commit it is.
