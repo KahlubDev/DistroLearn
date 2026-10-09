@@ -31,6 +31,27 @@ Both return JSON: `{"status":"ok"}`. Keep it one field. Consumers are probes.
 The handlers take a `ready func(context.Context) error`, so each service supplies its own
 without the package importing anything service-specific.
 
+## Built differently from the plan, 2026-10-09
+
+Two decisions taken while building, recorded here so the plan matches the code.
+
+**A 503 returns `{"status":"unavailable"}`, not `{"status":"ok"}`.** The shape stays one
+field. The text differs because a 503 whose body says ok is something an operator trusts
+and is wrong about, and probe bodies end up pasted into tickets.
+
+**`run()` blocks until its context is cancelled.** The skeleton returned nil straight
+away, so `main()` logged "stopped cleanly" and exited. A service that answers probes has
+to stay up. `run(ctx)` serves until cancelled, then shuts down within a 10s grace period,
+and a shutdown that overruns is reported rather than swallowed.
+
+## Signals
+
+`main()` wraps its context in `signal.NotifyContext` for SIGTERM and SIGINT. SIGTERM is
+what Kubernetes sends on pod deletion; without handling it, in-flight terminal and lab
+teardown traffic is cut mid-stream rather than drained. `srv.Shutdown` bounds the drain by
+`shutdownTimeout` (10s), below a typical pod termination grace period, so a stuck handler
+cannot hold the process open.
+
 ## Tests to add
 
 `services/internal/health/health_test.go`:
@@ -45,6 +66,10 @@ In both services' `main_test.go`:
 
 - Each service mounts its routes and answers `/healthz` with 200. This is what catches a
   service that builds but never registers the handler.
+- `stopSignals` contains SIGTERM and SIGINT. Cancelling the context stops `serve()` and
+  returns nil within the shutdown timeout.
+- The server answers a real request while running, so the shutdown test is not passing
+  against a server that never bound.
 
 ## Acceptance criteria
 
@@ -55,4 +80,5 @@ In both services' `main_test.go`:
 - `/readyz` returns 503 when a dependency check fails or the context is cancelled.
 - Handlers accept any method; the router answers 404 for unknown paths.
 - Tests fail if either `main.go` stops mounting the routes.
+- Both services shut down within a bounded timeout on SIGTERM or SIGINT.
 - `make check` passes.
