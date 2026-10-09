@@ -31,3 +31,17 @@ compose, so this test runs there and in CI from then on.
 
 - ADR 0003: `SET LOCAL app.tenant_id` inside every transaction, one role.
 - ADR 0006: PgBouncer in transaction mode; `server_reset_query` is not the safety net.
+
+## Follow-up: Go cache path in ci.yml
+
+Recorded 2026-10-09 from the ticket 014 QA review. Once `services/go.sum` exists, add
+`cache-dependency-path: services/go.sum` to the `actions/setup-go` step in
+`.github/workflows/ci.yml`. Until then the step carries a warning on every run:
+
+```
+Restore cache failed: Dependencies file is not found. Supported file pattern: go.mod
+```
+
+It is non-fatal, because `go.mod` alone is enough to key the cache while the module has
+no dependencies. This belongs with the first dependency added, which is likely the
+Postgres driver or the migration tool from ADR 0005.
