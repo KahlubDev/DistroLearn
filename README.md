@@ -1,5 +1,7 @@
 # DistroLearn
 
+[![CI](https://github.com/KahlubDev/DistroLearn/actions/workflows/ci.yml/badge.svg)](https://github.com/KahlubDev/DistroLearn/actions/workflows/ci.yml)
+
 Browser-based hands-on distributed-systems learning. Multi-tenant by institution,
 EU data residency option, ephemeral sandbox labs.
 
