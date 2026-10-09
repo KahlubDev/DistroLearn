@@ -3,9 +3,8 @@
 One command brings up Postgres, the API, and the workers against it.
 
 - Branch: `feature/017-local-compose`
-- ADR dependency: **blocked on ADR 0005** (migration tool). The compose file needs to know
-  how migrations run, and this ADR is still proposed. The image tags and service layout
-  below are settled; hold the migrate step until ADR 0005 is accepted.
+- ADR dependency: **none.** ADR 0005 (migrations, goose) and ADR 0006 (pooler) are
+  accepted, so this ticket is unblocked.
 - Also depends on 014 through 016 for CI and the Dockerfiles.
 
 ## Read first
@@ -35,10 +34,15 @@ Compose's Postgres version is a developer convenience and should match the pinne
 `.env.example` holds `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and the
 `DATABASE_URL` the services read. `.env` is already in `.gitignore`.
 
-Migrations, once ADR 0005 lands: the API container runs them at startup with an advisory
-lock so two replicas do not race. PgBouncer is not in compose. ADR 0006 covers production
-pooling, and a local pooler in front of one database process hides the connection bugs
-worth catching on a laptop.
+Migrations, per ADR 0005: goose runs at API startup, with an advisory lock so two replicas
+do not race. PgBouncer is not in compose. ADR 0006 covers production pooling, and a local
+pooler in front of one database process hides the connection bugs worth catching on a
+laptop.
+
+Compose is where the ADR 0006 two-tenant pooled-connection test first runs. That test
+needs a real PgBouncer in transaction mode in front of a real Postgres, which compose can
+supply and a unit test cannot. Add a `pgbouncer` service to this file, and a test that
+writes one row for each of two tenants and asserts neither can read the other's.
 
 ## Tests to add
 
@@ -62,3 +66,6 @@ worth catching on a laptop.
 - No service depends on a hardcoded host port, so a developer can run two stacks.
 - Web is behind a profile and does not start by default.
 - README documents the one command to start and stop the stack.
+- A `pgbouncer` service in transaction mode runs in front of Postgres, and the ADR 0006
+  two-tenant pooled-connection test passes against it. That test fails if `SET LOCAL`
+  ever stops resetting, so it belongs here and in CI, not only in a unit test.

@@ -1,6 +1,6 @@
 # ADR 0005: Database migrations
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-09
 - Related: `0003-tenancy-model.md`, `docs/research/011-status.md`
 

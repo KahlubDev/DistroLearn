@@ -1,6 +1,6 @@
 # ADR 0004: Launch region
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-09
 - Related: `0001-stack.md`, `0002-mvp-scope.md`, `docs/research/011-status.md`
 
@@ -35,34 +35,36 @@ It carries the widest set of the services ADR 0001 already commits to. ADR 0001'
 consequence about Cognito constraining cloud choice and EU region availability is
 accepted as the cost of that.
 
-## Gap: no managed NATS in Frankfurt
+## Gap, resolved 2026-10-09: managed NATS was not available in Frankfurt
 
 ADR 0001 names NATS JetStream and `001-stack.md` says to prefer a managed offering.
 There is no first-party AWS NATS service. The managed option is Synadia Cloud, whose
 published region list on 2026-10-09 was ap-east-2, aws-euwest-1, aws-useast-2, and
-aws-uswest-2. **eu-central-1 is not on it.**
+aws-uswest-2. **eu-central-1 was not on it.**
 
-So the managed bus and the launch region cannot be the same place today. Three ways out,
-none of which this ADR decides:
+**Decision: self-host NATS JetStream in the eu-central-1 cluster.** ADR 0001 carries a
+dated change note recording the move from managed to self-hosted.
 
-- Run NATS JetStream ourselves in the cluster, in Frankfurt. Costs us the managed
-  upgrade path and the backups that come with it.
-- Use the managed bus in eu-west-1 and accept bus events in Ireland while tenant data
-  stays in Frankfurt. The bus carries tenant identifiers, so this needs a residency
-  answer before launch.
-- Switch the launch region to eu-west-1, which matches the managed bus.
+The bus carries tenant identifiers, so running it outside the launch region needed a
+residency answer before launch rather than after. Self-hosting keeps every byte in
+Frankfurt and accepts ownership of JetStream upgrades, storage, and failover. Backup and
+restore for stream data was never covered by the managed tier, so nothing was given up
+there.
 
-Unresolved. This ADR stays proposed until it is settled.
+This closes the gap.
 
 ## Consequences
 
 - `region` on every tenant defaults to `eu-central-1` and the compose and Terraform work
   can assume it.
-- The bus region is the one open item in the residency story. It gates E9 and any claim
-  about where learner data lives.
+- We run the bus. JetStream upgrades, storage sizing, and failover are ours, and they sit
+  on the same Terraform-plus-one-chart footing as the rest of the cluster.
+- The bus being in-region means learner data stays in Frankfurt end to end for MVP, which
+  is the answer `vision.md` promises institutions.
 
 ## Revisit triggers
 
-Revisit when the bus hosting decision lands, when a second EU region is commissioned,
-when Synadia Cloud adds a Frankfurt region, or when an institution names a region its
-data processing agreement requires.
+Revisit when a managed NATS offering lists eu-central-1 (ADR 0001, 2026-10-09 change log),
+when the second EU region is commissioned, when measured NATS operation becomes a
+sustained burden, or when an institution names a region its data processing agreement
+requires.

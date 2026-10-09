@@ -1,6 +1,6 @@
 # ADR 0006: Connection pooler
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-09
 - Related: `0003-tenancy-model.md`, `0005-db-migrations.md`, `docs/research/011-status.md`
 
@@ -25,6 +25,32 @@ transaction boundary is the same boundary the pooler keys on.
 `server_reset_query` is not the safety net. It is skipped by default in transaction mode,
 so it does not run when a server connection returns to the pool. Tenant scoping comes
 from `SET LOCAL` being transaction-scoped, and that is the only mechanism relied on.
+
+## Required test: two tenants across a pooled connection
+
+This ADR is only true if `SET LOCAL` actually resets. That is a property of the pooler and
+the transaction boundary together, so it gets a test rather than a comment.
+
+**Required before this ADR can be considered implemented:** a test that inserts a row for
+tenant A and one for tenant B, then through PgBouncer in transaction mode reads as tenant
+A, and again reads as tenant B. It must assert tenant A sees exactly its own row and never
+tenant B's, in both orders, and it must hold the pool size at or below the number of
+concurrent requests so the same physical connection is reused.
+
+Three variants, since each catches a different mistake:
+
+- Sequential: A reads, then B reads, on the same connection. Catches a `SET` that was not
+  `LOCAL`.
+- Interleaved transactions: A begins and reads, B begins and reads before A commits.
+  Catches isolation between concurrent transactions.
+- Forced reuse: the pool is capped at one connection for the test, so B necessarily runs
+  on the connection A just returned. Catches a reset that depends on something other than
+  the transaction ending.
+
+A failure here means tenant data is readable across tenants, so it is a release blocker
+rather than a flaky test. The test belongs to the Phase 5 database ticket and runs in CI
+against a real Postgres with a real PgBouncer, since a mock pooler proves nothing about
+reset behavior.
 
 ## Consequences
 
@@ -51,5 +77,6 @@ from `SET LOCAL` being transaction-scoped, and that is the only mechanism relied
 ## Revisit triggers
 
 Revisit when RDS Proxy's latency proves irrelevant next to the API, when PgBouncer cannot
-meet the measured connection count, or when managed Postgres arrives with its own
-pooling that resolves the tenancy question differently.
+meet the measured connection count, when managed Postgres arrives with its own
+pooling that resolves the tenancy question differently, or when the two-tenant
+pooled-connection test fails under a configuration change.

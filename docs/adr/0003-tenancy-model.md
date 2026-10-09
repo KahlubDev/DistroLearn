@@ -1,6 +1,6 @@
 # ADR 0003: Tenancy model
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-09
 - Source: `docs/architecture/tenancy.md`, answers in `docs/research/011-status.md`
 - Related: `0001-stack.md`, `0002-mvp-scope.md`
