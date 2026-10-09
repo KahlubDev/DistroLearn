@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: make check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Reads the version from the packageManager field in package.json, so pnpm is not
+      # written twice. This runs before setup-node on purpose: it installs pnpm into its
+      # own directory rather than relying on a corepack shim that setup-node would replace.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # setup-go reads services/go.mod, so the Go version is not written twice either.
+      # No cache-dependency-path: services/go.sum does not exist until the module has a
+      # dependency, and setup-go fails on a missing path.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/go.mod
+
+      - name: Report toolchain versions
+        run: |
+          echo "node $(node --version)"
+          echo "pnpm $(pnpm --version)"
+          echo "go $(go version | awk '{print $3}')"
+
+      - name: Verify pnpm matches packageManager
+        run: |
+          expected=$(node -p "require('./package.json').packageManager.split('@')[1]")
+          actual=$(pnpm --version)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::package.json pins pnpm@$expected but pnpm/action-setup activated $actual"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # One entry point, so CI and a local run cannot drift.
+      - name: Run make check
+        run: make check
+
+      - name: Confirm the tree is clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the build modified tracked files"
+            git status --porcelain
+            exit 1
+          fi
