@@ -1,0 +1,2 @@
+# Static files served at the web root. Next.js does not create this directory, and the
+# image build copies it, so it is kept in git with this file.

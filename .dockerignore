@@ -1,0 +1,36 @@
+# Build context for services/Dockerfile and apps/web/Dockerfile. Both are built from the
+# repository root, so this file governs both.
+
+# Git history and refs are not needed to build either image.
+.git
+.gitignore
+.github
+
+# Host dependency trees must never enter an image. A host node_modules is built against
+# a different platform and a different pnpm store layout.
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build output from the host. The image regenerates it.
+.next
+**/.next
+out
+dist
+build
+coverage
+
+# Host build artefacts and caches.
+services/bin
+**/*.tsbuildinfo
+next-env.d.ts
+
+# Local config and secrets. .env is listed in .gitignore for the same reason.
+.env
+.env.*
+*.local
+
+# Documentation and images are not inputs to any build.
+docs
+*.md
+**/*.md
