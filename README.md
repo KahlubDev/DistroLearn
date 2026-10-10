@@ -60,7 +60,8 @@ docker compose down
 ```
 
 Add the web app with `--profile web`. Ports are assigned by Docker rather than fixed, so a
-second stack runs alongside the first:
+second stack runs alongside the first. `docker compose port web 3000` reports where web
+landed:
 
 ```
 docker compose --profile web up --wait
@@ -69,6 +70,20 @@ docker compose --profile web up --wait
 The API applies migrations on startup under an advisory lock, so two replicas starting
 together do not race. Readiness pings Postgres through PgBouncer; liveness does not, so a
 database blip removes the replica from rotation instead of restarting it.
+
+### Changing a password
+
+`POSTGRES_PASSWORD`, `POSTGRES_APP_PASSWORD`, and `PGBOUNCER_ADMIN_PASSWORD` are read when
+a Postgres volume is first initialised, and `docker-entrypoint-initdb.d` runs once. Editing
+one in `.env` and running `up` against an existing volume fails with
+`password authentication failed`, because the stored password is the old one.
+
+Recreate the volume to pick up a new password. This deletes every lab row in the stack:
+
+```
+docker compose down -v
+docker compose up --wait
+```
 
 ### Tenant isolation test
 

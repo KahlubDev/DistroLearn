@@ -37,11 +37,30 @@ else
 	no "not healthy: ${unhealthy}"
 fi
 
+set -a
+# shellcheck disable=SC1091
+. ./.env
+set +a
+
+echo
+echo "== pgbouncer admin credential is separate =="
+# The app role must not reach SHOW CONFIG or SHUTDOWN. Distinct passwords are what makes that
+# hold; separate userlist entries on one password would not.
+userlist="$(docker compose exec -T pgbouncer cat /tmp/userlist.txt 2>/dev/null || true)"
+app_pw="$(printf '%s\n' "${userlist}" | sed -n "s/^\"${POSTGRES_APP_USER:-app}\" \"\(.*\)\"\$/\1/p")"
+admin_pw="$(printf '%s\n' "${userlist}" | sed -n 's/^"pgbouncer_admin" "\(.*\)"$/\1/p')"
+if [ -n "${app_pw}" ] && [ -n "${admin_pw}" ] && [ "${app_pw}" != "${admin_pw}" ]; then
+	ok "pgbouncer_admin has its own password"
+else
+	no "pgbouncer_admin password is missing or equals the app password"
+fi
+
 echo
 echo "== pgbouncer pool_mode =="
-# Read from the running pooler, not from the ini file, so this proves what loaded.
-mode="$(docker compose exec -T postgres sh -c \
-	"PGPASSWORD=\${POSTGRES_APP_PASSWORD} psql -h pgbouncer -p 6432 -U pgbouncer_admin -d pgbouncer -tAc 'SHOW CONFIG'" 2>/dev/null \
+# Read from the running pooler, not from the ini file, so this proves what loaded. The admin
+# password, not the app one: pgbouncer_admin has its own credential.
+mode="$(docker compose exec -T -e PGB_ADMIN_PW="${PGBOUNCER_ADMIN_PASSWORD:?PGBOUNCER_ADMIN_PASSWORD is not in .env}" postgres sh -c \
+	"PGPASSWORD=\${PGB_ADMIN_PW} psql -h pgbouncer -p 6432 -U pgbouncer_admin -d pgbouncer -tAc 'SHOW CONFIG'" 2>/dev/null \
 	| awk -F'|' '$1 ~ /pool_mode/ {gsub(/ /,"",$2); print $2}')"
 echo "pool_mode = ${mode}"
 if [ "${mode}" = "transaction" ]; then
@@ -65,11 +84,6 @@ echo "== tenant isolation, three variants (ADR 0006) =="
 # Ephemeral host ports, discovered rather than hardcoded, so two stacks can run at once.
 pgb_port="$(docker compose port pgbouncer 6432 | sed 's/.*://')"
 pg_port="$(docker compose port postgres 5432 | sed 's/.*://')"
-
-set -a
-# shellcheck disable=SC1091
-. ./.env
-set +a
 
 app_url="postgres://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${pgb_port}/${POSTGRES_DB:-distrolearn}?sslmode=disable"
 admin_url="postgres://${POSTGRES_USER:-distrolearn}:${POSTGRES_PASSWORD}@127.0.0.1:${pg_port}/${POSTGRES_DB:-distrolearn}?sslmode=disable"

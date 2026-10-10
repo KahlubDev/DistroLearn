@@ -35,7 +35,11 @@ services:
     ports:
       - "127.0.0.1::5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-distrolearn} -d ${POSTGRES_DB:-distrolearn}"]
+      # -h 127.0.0.1, not the unix socket. On first init the entrypoint runs a temporary
+      # server bound to the socket only, to run docker-entrypoint-initdb.d. A socket probe
+      # goes green against that server while TCP is still closed, so depends_on releases
+      # the api and the workers into a refused connection.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-distrolearn} -d ${POSTGRES_DB:-distrolearn}"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -49,9 +53,13 @@ services:
     environment:
       PGBOUNCER_APP_USER: ${POSTGRES_APP_USER:-app}
       PGBOUNCER_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env}
+      # Distinct from the app password, so holding the app credential does not reach SHOW
+      # CONFIG or SHUTDOWN.
+      PGBOUNCER_ADMIN_PASSWORD: ${PGBOUNCER_ADMIN_PASSWORD:?PGBOUNCER_ADMIN_PASSWORD must be set in .env}
+      PGBOUNCER_DATABASE: ${POSTGRES_DB:-distrolearn}
       AUTH_FILE: /tmp/userlist.txt
     volumes:
-      - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./docker/pgbouncer/pgbouncer.ini.template:/etc/pgbouncer/pgbouncer.ini.template:ro
       - ./docker/pgbouncer/render-userlist.sh:/render-userlist.sh:ro
     ports:
       - "127.0.0.1::6432"
@@ -127,6 +135,10 @@ services:
     depends_on:
       api:
         condition: service_started
+    # Loopback, ephemeral, matching postgres and pgbouncer: reachable from the host at
+    # `docker compose port web 3000`, and still two stacks side by side.
+    ports:
+      - "127.0.0.1::3000"
 
 volumes:
   postgres-data:

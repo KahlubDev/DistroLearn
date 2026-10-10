@@ -1,5 +1,10 @@
 ; PgBouncer in transaction mode, per ADR 0006.
 ;
+; Template, not the live config. render-userlist.sh substitutes @@DATABASE@@ from
+; POSTGRES_DB and writes /tmp/pgbouncer.ini, which is the file pgbouncer is started with.
+; PgBouncer reads no environment variables of its own, so a name that has to change has to
+; be substituted before startup.
+;
 ; The mode is the whole point. Transaction mode hands a server connection to a client for
 ; the length of one transaction and returns it afterwards, which matches the lifetime of
 ; SET LOCAL: the tenant value is discarded at commit, so it cannot survive onto the next
@@ -11,7 +16,7 @@
 ; rests entirely on set_config(..., is_local => true) inside every transaction.
 
 [databases]
-distrolearn = host=postgres port=5432 dbname=distrolearn
+@@DATABASE@@ = host=postgres port=5432 dbname=@@DATABASE@@
 
 [pgbouncer]
 listen_addr = 0.0.0.0
@@ -38,12 +43,14 @@ query_wait_timeout = 10
 ; Local only. A production deployment terminates TLS here.
 auth_type = scram-sha-256
 
-; Written at startup by /entrypoint.sh from environment variables, so the credential never
-; lands in the repository. /tmp is container-local and writable by the image's postgres user.
+; Written at startup by /render-userlist.sh from environment variables, so the credential
+; never lands in the repository. /tmp is container-local and writable by the image's
+; postgres user.
 auth_file = /tmp/userlist.txt
 
 ; Separate from the app role, so the role the services authenticate as cannot reach SHOW
-; CONFIG or SHUTDOWN. Local compose only.
+; CONFIG or SHUTDOWN. It carries its own password, PGBOUNCER_ADMIN_PASSWORD, so holding the
+; app credential is not enough to administer the pooler. Local compose only.
 admin_users = pgbouncer_admin
 
 log_connections = 0
