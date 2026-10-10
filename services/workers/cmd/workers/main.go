@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,7 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/KahlubDev/DistroLearn/services/internal/db"
 	"github.com/KahlubDev/DistroLearn/services/internal/health"
+	"github.com/KahlubDev/DistroLearn/services/internal/healthcheck"
 )
 
 // shutdownTimeout bounds the graceful shutdown. After it, in-flight work is cut off, so
@@ -22,12 +27,30 @@ const shutdownTimeout = 10 * time.Second
 // to the runtime, so an impatient operator can still force the process down.
 var stopSignals = []os.Signal{syscall.SIGTERM, syscall.SIGINT}
 
-// natsConn reports whether the worker holds a usable NATS connection.
+// pool is the workers' Postgres pool, opened through PgBouncer.
+var pool *pgxpool.Pool
+
+// natsConn reports whether the worker can do useful work: a usable NATS connection and a
+// reachable database.
 //
-// An unconnected consumer accepts nothing, so a worker without one is alive but must not
-// take work. The connection itself arrives with the NATS JetStream client; until then
-// this reports ready, because there is no connection to be missing.
-func natsConn(context.Context) error {
+// The NATS connection itself arrives with the JetStream client (ADR 0001 settled
+// self-hosting it in the Frankfurt cluster). Until then that half reports ready, because
+// there is no connection to be missing. The database half is live now, from ticket 017.
+func natsConn(ctx context.Context) error {
+	if pool == nil {
+		return errors.New("database pool not initialised")
+	}
+	return pool.Ping(ctx)
+}
+
+// setup opens the pool. Only the API runs migrations, so the workers waits for the schema
+// rather than racing it.
+func setup(ctx context.Context) error {
+	p, err := db.Open(ctx, db.Config{AppDSN: os.Getenv("DATABASE_URL")})
+	if err != nil {
+		return err
+	}
+	pool = p
 	return nil
 }
 
@@ -36,6 +59,13 @@ func natsConn(context.Context) error {
 var version = "dev"
 
 func main() {
+	// "healthcheck" makes the binary its own probe. The runtime image is distroless and has
+	// no shell, so a CMD-SHELL healthcheck cannot run, and compose --wait needs the
+	// service to report its own health.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck.Run("http://127.0.0.1" + listenAddr + "/healthz"))
+	}
+
 	slog.Info("workers starting", "version", version)
 
 	// NotifyContext cancels ctx on the first stop signal and restores the default
@@ -43,6 +73,15 @@ func main() {
 	// in-flight lab teardown message is lost.
 	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
+
+	// The pool opens before the listener, so the first readiness probe that answers is one
+	// the worker can keep. No migrations here: the API owns those.
+	setupCtx, cancelSetup := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelSetup()
+	if err := setup(setupCtx); err != nil {
+		slog.Error("workers setup failed", "error", err)
+		os.Exit(1)
+	}
 
 	if err := run(ctx); err != nil {
 		slog.Error("workers exited with error", "error", err)

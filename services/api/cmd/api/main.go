@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,7 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/KahlubDev/DistroLearn/services/internal/db"
 	"github.com/KahlubDev/DistroLearn/services/internal/health"
+	"github.com/KahlubDev/DistroLearn/services/internal/healthcheck"
 )
 
 // shutdownTimeout bounds the graceful shutdown. After it, in-flight requests are cut
@@ -23,13 +29,41 @@ const shutdownTimeout = 10 * time.Second
 // to the runtime, so an impatient operator can still force the process down.
 var stopSignals = []os.Signal{syscall.SIGTERM, syscall.SIGINT}
 
+// pool is the application's Postgres pool, opened through PgBouncer. Readiness depends on
+// it, so the package holds it rather than threading it through every call site.
+var pool *pgxpool.Pool
+
 // ready reports whether the API can serve traffic.
 //
-// It checks configuration only for now. A database check arrives in the Phase 5 database
-// ticket, once migrations and the pooler exist. Returning ready before the API can reach
-// a database would be a probe that passes before the service works, which is worse than
-// no probe.
-func ready(context.Context) error {
+// Now that the database exists (ticket 017), readiness pings it. Liveness still does not,
+// since a database blip must remove the replica from rotation rather than restart it.
+func ready(ctx context.Context) error {
+	if pool == nil {
+		return errors.New("database pool not initialised")
+	}
+	return pool.Ping(ctx)
+}
+
+// setup runs migrations and opens the pool. Migrations run here, at API startup, under the
+// advisory lock ADR 0005 requires. Only the API migrates; the workers wait for the schema.
+func setup(ctx context.Context) error {
+	cfg := db.Config{
+		AppDSN:     os.Getenv("DATABASE_URL"),
+		MigrateDSN: os.Getenv("MIGRATIONS_DATABASE_URL"),
+	}
+
+	if cfg.MigrateDSN != "" {
+		if err := db.Migrate(ctx, cfg.MigrateDSN, slog.Info); err != nil {
+			return fmt.Errorf("migrate: %w", err)
+		}
+		slog.Info("migrations applied")
+	}
+
+	p, err := db.Open(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	pool = p
 	return nil
 }
 
@@ -38,6 +72,13 @@ func ready(context.Context) error {
 var version = "dev"
 
 func main() {
+	// "healthcheck" makes the binary its own probe. The runtime image is distroless and has
+	// no shell, so a CMD-SHELL healthcheck cannot work, and compose --wait needs the
+	// service to report its own health.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck.Run("http://127.0.0.1" + listenAddr + "/healthz"))
+	}
+
 	slog.Info("api starting", "version", version)
 
 	// NotifyContext cancels ctx on the first stop signal and restores the default
@@ -45,6 +86,15 @@ func main() {
 	// terminal and lab-proxy requests are cut mid-stream.
 	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
+
+	// Migrations and the pool open before the listener, so the first readiness probe that
+	// answers is one the service can actually keep.
+	setupCtx, cancelSetup := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelSetup()
+	if err := setup(setupCtx); err != nil {
+		slog.Error("api setup failed", "error", err)
+		os.Exit(1)
+	}
 
 	if err := run(ctx); err != nil {
 		slog.Error("api exited with error", "error", err)

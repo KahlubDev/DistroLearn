@@ -35,14 +35,14 @@ Compose's Postgres version is a developer convenience and should match the pinne
 `DATABASE_URL` the services read. `.env` is already in `.gitignore`.
 
 Migrations, per ADR 0005: goose runs at API startup, with an advisory lock so two replicas
-do not race. PgBouncer is not in compose. ADR 0006 covers production pooling, and a local
-pooler in front of one database process hides the connection bugs worth catching on a
-laptop.
+do not race. Migrations take a direct connection to Postgres rather than the pooled path,
+since an advisory lock is session-scoped and transaction pooling cannot carry it.
 
-Compose is where the ADR 0006 two-tenant pooled-connection test first runs. That test
-needs a real PgBouncer in transaction mode in front of a real Postgres, which compose can
-supply and a unit test cannot. Add a `pgbouncer` service to this file, and a test that
-writes one row for each of two tenants and asserts neither can read the other's.
+Compose also carries PgBouncer in transaction mode. It is here for one reason: ADR 0006's
+two-tenant pooled-connection test needs a real pooler in front of a real Postgres, and a
+unit test cannot supply either. Local pooling does not hide connection bugs here, it is the
+subject under test. The services themselves point at PgBouncer, so the path under test is
+the path that runs.
 
 ## Tests to add
 

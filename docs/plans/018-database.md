@@ -34,14 +34,21 @@ compose, so this test runs there and in CI from then on.
 
 ## Follow-up: Go cache path in ci.yml
 
-Recorded 2026-10-09 from the ticket 014 QA review. Once `services/go.sum` exists, add
-`cache-dependency-path: services/go.sum` to the `actions/setup-go` step in
-`.github/workflows/ci.yml`. Until then the step carries a warning on every run:
+Recorded 2026-10-09 from the ticket 014 QA review, and now actionable: ticket 017 added
+`github.com/jackc/pgx/v5` and `github.com/pressly/goose/v3`, so `services/go.sum` exists.
+
+**Open a follow-up on branch `fix/020-go-cache` after 017 merges.** Add
+
+```
+cache-dependency-path: services/go.sum
+```
+
+to the `actions/setup-go` step in `.github/workflows/ci.yml`. Until then every CI run
+carries this warning:
 
 ```
 Restore cache failed: Dependencies file is not found. Supported file pattern: go.mod
 ```
 
-It is non-fatal, because `go.mod` alone is enough to key the cache while the module has
-no dependencies. This belongs with the first dependency added, which is likely the
-Postgres driver or the migration tool from ADR 0005.
+It is non-fatal, since `go.mod` alone is enough to key the cache. Deliberately left out of
+ticket 017, which must not touch `ci.yml`.
