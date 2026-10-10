@@ -1,0 +1,132 @@
+# Local stack: Postgres, PgBouncer in transaction mode, the API, the workers, and web
+# behind a profile.
+#
+#   docker compose up --wait          # backend only
+#   docker compose --profile web up --wait
+#   docker compose down
+#
+# Every image is pinned by digest. Tags are mutable pointers, so a digest is the only exact
+# pin. Digests were resolved on 2026-10-10 from the registry manifest index, reading the
+# docker-content-digest header. The three service images are built from this repository, so
+# they have no digest.
+
+name: distrolearn
+
+services:
+  postgres:
+    # postgres:18.6, matching ADR 0001. Verified against the Docker Hub manifest index.
+    image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-distrolearn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-distrolearn}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env}
+    volumes:
+      # PostgreSQL 18 images store data under a major-version subdirectory of
+      # /var/lib/postgresql, and refuse to start if /var/lib/postgresql/data is itself a
+      # mount point. See docker-library/postgres#1259.
+      - postgres-data:/var/lib/postgresql
+      # Creates the app role on first init of an empty volume. Runs once, so the role
+      # already exists on every later start.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    # Ephemeral host ports. No hardcoded port, so two stacks run side by side, and the Go
+    # tests on the host can still reach the database. docker compose port reports which one.
+    ports:
+      - "127.0.0.1::5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-distrolearn} -d ${POSTGRES_DB:-distrolearn}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    # No host ports, so two stacks can run at once.
+
+  pgbouncer:
+    # edoburu/pgbouncer:v1.25.2-p0, verified the same way. v-prefixed tag, since the bare
+    # 1.25.2-p0 form does not exist.
+    image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340
+    environment:
+      PGBOUNCER_APP_USER: ${POSTGRES_APP_USER:-app}
+      PGBOUNCER_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set in .env}
+      AUTH_FILE: /tmp/userlist.txt
+    volumes:
+      - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./docker/pgbouncer/render-userlist.sh:/render-userlist.sh:ro
+    ports:
+      - "127.0.0.1::6432"
+    # Bypasses the image entrypoint: it writes an MD5 secret, which scram-sha-256 cannot use.
+    entrypoint: ["/bin/sh", "/render-userlist.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Busybox nc, since the pgbouncer image ships no psql.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432 || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+
+  api:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      target: api
+      args:
+        VERSION: ${VERSION:-dev}
+    image: distrolearn-api:${VERSION:-dev}
+    environment:
+      # Through PgBouncer. This is the path the tenant isolation test exercises.
+      DATABASE_URL: postgres://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-distrolearn}?sslmode=disable
+      # Direct to Postgres, as the owner. Migrations need a session-level advisory lock,
+      # which transaction pooling cannot carry.
+      MIGRATIONS_DATABASE_URL: postgres://${POSTGRES_USER:-distrolearn}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-distrolearn}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    healthcheck:
+      # The distroless image has no shell, so the binary probes itself.
+      test: ["CMD", "/service", "healthcheck"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 20s
+
+  workers:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      target: workers
+      args:
+        VERSION: ${VERSION:-dev}
+    image: distrolearn-workers:${VERSION:-dev}
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD}@pgbouncer:6432/${POSTGRES_DB:-distrolearn}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/service", "healthcheck"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: distrolearn-web:${VERSION:-dev}
+    # Behind a profile, so a backend-only run does not pay for a Next.js build.
+    profiles: ["web"]
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:

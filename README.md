@@ -47,3 +47,36 @@ make lint
 make test
 make build
 ```
+
+## Local stack
+
+Postgres, PgBouncer in transaction mode, the API, and the workers. Copy the example env
+first; the real file is gitignored.
+
+```
+cp .env.example .env
+docker compose up --wait    # backend
+docker compose down
+```
+
+Add the web app with `--profile web`. Ports are assigned by Docker rather than fixed, so a
+second stack runs alongside the first:
+
+```
+docker compose --profile web up --wait
+```
+
+The API applies migrations on startup under an advisory lock, so two replicas starting
+together do not race. Readiness pings Postgres through PgBouncer; liveness does not, so a
+database blip removes the replica from rotation instead of restarting it.
+
+### Tenant isolation test
+
+The ADR 0006 test needs a real PgBouncer in front of a real Postgres, so it runs here
+rather than under `make check`:
+
+```
+docker/compose_test.sh
+```
+
+It runs all three variants and fails if any tenant can read another tenant's row.

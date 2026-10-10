@@ -18,26 +18,40 @@ func TestMuxServesHealthEndpoints(t *testing.T) {
 
 	mux := newMux()
 
-	for _, path := range []string{"/healthz", "/readyz"} {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-		if rec.Code != http.StatusOK {
-			t.Errorf("GET %s = %d, want %d", path, rec.Code, http.StatusOK)
-		}
+	// Liveness does not touch the database, so it answers 200 with no pool configured.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /healthz = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	rec := httptest.NewRecorder()
+	// Readiness pings Postgres from ticket 017 on, so with no pool it must be 503 rather
+	// than claiming the replica can take traffic.
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /readyz without a pool = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+
+	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unknown", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("GET /unknown = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 
-func TestReadyReportsOK(t *testing.T) {
+// TestReadyFailsWithoutPool covers the pre-setup case. Readiness pings Postgres from ticket
+// 017 on, so an API that has not opened its pool must report not ready rather than claiming
+// it can serve.
+func TestReadyFailsWithoutPool(t *testing.T) {
 	t.Parallel()
 
-	if err := ready(context.Background()); err != nil {
-		t.Errorf("ready() = %v, want nil", err)
+	old := pool
+	pool = nil
+	t.Cleanup(func() { pool = old })
+
+	if err := ready(context.Background()); err == nil {
+		t.Error("ready() = nil with no pool, want an error so the replica stays out of rotation")
 	}
 }
 
