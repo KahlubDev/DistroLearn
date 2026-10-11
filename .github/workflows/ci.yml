@@ -35,12 +35,13 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       # setup-go reads services/go.mod, so the Go version is not written twice either.
-      # No cache-dependency-path: services/go.sum does not exist until the module has a
-      # dependency, and setup-go fails on a missing path.
+      # The cache is keyed on services/go.sum. Ticket 017 added pgx and goose, so go.sum
+      # exists and setup-go no longer warns that the dependency file is missing.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: services/go.mod
+          cache-dependency-path: services/go.sum
 
       - name: Report toolchain versions
         run: |
