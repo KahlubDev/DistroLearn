@@ -32,23 +32,24 @@ compose, so this test runs there and in CI from then on.
 - ADR 0003: `SET LOCAL app.tenant_id` inside every transaction, one role.
 - ADR 0006: PgBouncer in transaction mode; `server_reset_query` is not the safety net.
 
-## Follow-up: Go cache path in ci.yml
+## Follow-up: Go cache path in ci.yml (done)
 
 Recorded 2026-10-09 from the ticket 014 QA review, and now actionable: ticket 017 added
 `github.com/jackc/pgx/v5` and `github.com/pressly/goose/v3`, so `services/go.sum` exists.
 
-**Open a follow-up on branch `fix/020-go-cache` after 017 merges.** Add
+**Done on branch `fix/020-go-cache`.** The `actions/setup-go` step in
+`.github/workflows/ci.yml` now carries
 
 ```
 cache-dependency-path: services/go.sum
 ```
 
-to the `actions/setup-go` step in `.github/workflows/ci.yml`. Until then every CI run
-carries this warning:
+Before that change every CI run carried this warning:
 
 ```
 Restore cache failed: Dependencies file is not found. Supported file pattern: go.mod
 ```
 
-It is non-fatal, since `go.mod` alone is enough to key the cache. Deliberately left out of
+The warning is gone and the run restores the Go build cache from `go.sum` as its key. It
+was non-fatal, since `go.mod` alone is enough to key the cache, so it was left out of
 ticket 017, which must not touch `ci.yml`.
