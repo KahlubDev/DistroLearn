@@ -55,8 +55,8 @@ first; the real file is gitignored.
 
 ```
 cp .env.example .env
-docker compose up --wait    # backend
-docker compose down
+docker compose up --wait         # backend
+docker compose --profile web down
 ```
 
 Add the web app with `--profile web`. Ports are assigned by Docker rather than fixed, so a
@@ -67,9 +67,19 @@ landed:
 docker compose --profile web up --wait
 ```
 
+Compose stops only the services in an active profile, so `down` needs `--profile web` to
+take web down too. That one command stops the whole stack, with or without web. A plain
+`docker compose down` leaves a web container up on its host port.
+
 The API applies migrations on startup under an advisory lock, so two replicas starting
 together do not race. Readiness pings Postgres through PgBouncer; liveness does not, so a
 database blip removes the replica from rotation instead of restarting it.
+
+The SQL files in `services/migrations/` are embedded in the api binary with `//go:embed`, so
+a container carries no migrations directory. After adding or editing one, run
+`docker compose up --build`. Without `--build` Compose reuses the existing image, the new
+file never reaches the binary, and every service still reports healthy on the old schema.
+Nothing warns about it.
 
 ### Changing a password
 

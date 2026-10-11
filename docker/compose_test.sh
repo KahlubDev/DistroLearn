@@ -30,9 +30,12 @@ docker compose ps
 
 echo
 echo "== every service healthy =="
-unhealthy="$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2 != "healthy" {print $1}')"
+# A service with no healthcheck, web behind its profile, leaves Health empty. That is not a
+# failure: `up --wait` already waited for its container to run, so there is no health state
+# to report. Only a service that declares a healthcheck can report anything but healthy.
+unhealthy="$(docker compose ps --format '{{.Service}} {{.Health}}' | awk '$2 != "" && $2 != "healthy" {print $1}')"
 if [ -z "${unhealthy}" ]; then
-	ok "all services report healthy"
+	ok "every service with a healthcheck reports healthy"
 else
 	no "not healthy: ${unhealthy}"
 fi
