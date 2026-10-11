@@ -1,0 +1,144 @@
+name: Compose
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A separate group from ci.yml's, so a compose run never cancels a check run or the other
+# way round. cancel-in-progress is left at its default of false, so a new push queues
+# behind the run in flight rather than cancelling it.
+concurrency:
+  group: compose-${{ github.ref }}
+
+jobs:
+  tenant-isolation:
+    # This name is the string a branch protection rule selects, the way `make check` is
+    # today (docs/reviews/014-ci.md lines 154-156).
+    name: tenant isolation (compose)
+    # The pin ci.yml already carries. This image ships Docker Engine and the Compose v2
+    # plugin, so there is no Docker setup action to pin.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # go test runs on the runner, so the Go version comes from services/go.mod and the
+      # cache key from services/go.sum, the same two files ci.yml reads. No Node or pnpm
+      # step: the job never touches apps/web, and web sits behind a compose profile that
+      # `docker compose build` leaves alone.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/go.mod
+          cache-dependency-path: services/go.sum
+
+      # A runner image change lands in the log instead of showing up as an unexplained
+      # failure three steps later.
+      - name: Report versions
+        run: |
+          docker version
+          docker compose version
+          go version
+
+      # compose.yaml renders ${POSTGRES_PASSWORD:?} and two more, so compose refuses to
+      # start without them. The three placeholders are already distinct, which is what
+      # docs/reviews/017-recheck.md finding 8 needs. No repository secret is involved, and
+      # .env is gitignored so the tree stays clean.
+      - name: Create .env
+        run: cp .env.example .env
+
+      # docs/reviews/017-recheck.md finding A: compose reuses an existing image rather
+      # than rebuilding, so a new migration file never reaches the embedded binary and
+      # every service still reports healthy on the old schema. Building here makes the
+      # step fail with compiler output rather than as an `up --wait` timeout, and stops
+      # the job depending on implicit build behaviour. The shell value wins over
+      # VERSION=dev in .env, so the image tag names the commit under test.
+      #
+      # GITHUB_ENV carries it past this step. A bare export dies with this shell, and the
+      # next step interpolates VERSION=dev out of .env, tags the stack distrolearn-api:dev,
+      # and runs an image this step never built. Then the export buys nothing and the
+      # version the binary logs at startup names nothing.
+      - name: Build the service images
+        run: |
+          export VERSION="${GITHUB_SHA:0:8}"
+          echo "VERSION=${VERSION}" >>"${GITHUB_ENV}"
+          docker compose build
+
+      - name: Bring up the stack
+        run: docker compose up -d --wait --wait-timeout 300
+
+      # Read from the running pooler, not from the ini file, so this proves what loaded.
+      # A session-mode pooler would let all three variants pass anyway, because SET LOCAL
+      # resets at commit either way, which would leave ADR 0006 untested. Job level env is
+      # resolved before the step above created .env, so the file is sourced here.
+      - name: Check the pooler is in transaction mode
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          . ./.env
+          set +a
+          mode="$(docker compose exec -T -e PGB_ADMIN_PW="${PGBOUNCER_ADMIN_PASSWORD:?PGBOUNCER_ADMIN_PASSWORD is not in .env}" postgres sh -c \
+            "PGPASSWORD=\${PGB_ADMIN_PW} psql -h pgbouncer -p 6432 -U pgbouncer_admin -d pgbouncer -tAc 'SHOW CONFIG'" \
+            | awk -F'|' '$1 ~ /pool_mode/ {gsub(/ /,"",$2); print $2}')"
+          echo "pool_mode = ${mode}"
+          if [ "${mode}" != "transaction" ]; then
+            echo "::error::pool_mode is ${mode:-unknown}, want transaction (ADR 0006)"
+            exit 1
+          fi
+
+      # Ephemeral host ports, discovered rather than assumed, the way
+      # docker/compose_test.sh lines 88-92 do. The app DSN goes through PgBouncer and the
+      # admin DSN goes direct, since migrations and seeding need a real session.
+      #
+      # Output goes to a file that is then printed, rather than piped into tee. The
+      # default run: shell on Linux is `bash -e` with no pipefail, so a tee pipeline would
+      # report tee's exit status and swallow a failing go test. No -count=2 and no retry:
+      # ADR 0006 line 50 calls a failure here a release blocker, not a flake.
+      - name: Run the three ADR 0006 variants
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          . ./.env
+          set +a
+          pgb_port="$(docker compose port pgbouncer 6432 | sed 's/.*://')"
+          pg_port="$(docker compose port postgres 5432 | sed 's/.*://')"
+          app_url="postgres://${POSTGRES_APP_USER:-app}:${POSTGRES_APP_PASSWORD}@127.0.0.1:${pgb_port}/${POSTGRES_DB:-distrolearn}?sslmode=disable"
+          admin_url="postgres://${POSTGRES_USER:-distrolearn}:${POSTGRES_PASSWORD}@127.0.0.1:${pg_port}/${POSTGRES_DB:-distrolearn}?sslmode=disable"
+
+          cd services
+          TEST_APP_DSN="${app_url}" TEST_ADMIN_DSN="${admin_url}" \
+            go test ./internal/db/... -count=1 -run TestTenantIsolation -v \
+            >"${RUNNER_TEMP}/variants.log" 2>&1
+          cat "${RUNNER_TEMP}/variants.log"
+
+      # go test exits 0 when a test skips, so this is the job's real gate. The annotation
+      # names the variant, so the failure says which one went missing.
+      - name: Assert no variant skipped
+        run: |
+          log="${RUNNER_TEMP}/variants.log"
+          for variant in SequentialSameConnection InterleavedTransactions PoolCappedAtOneConnection; do
+            if ! grep -q -- "--- PASS: TestTenantIsolation_${variant} (" "${log}"; then
+              echo "::error::TestTenantIsolation_${variant} did not pass, it skipped or failed"
+              exit 1
+            fi
+          done
+          if grep -q -- '--- SKIP:' "${log}"; then
+            echo "::error::a variant skipped, so tenant isolation was not tested"
+            exit 1
+          fi
+
+      - name: Dump compose state
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail 200
+
+      - name: Tear down the stack
+        if: always()
+        run: docker compose down -v
