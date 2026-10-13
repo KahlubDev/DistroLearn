@@ -112,12 +112,13 @@ The hazard is `docs/reviews/017-recheck.md` finding A. After adding `00002_probe
 `docker compose up -d --wait` reused the old image, goose stayed at version 1, and every
 service reported healthy. Nothing warned.
 
-On a GitHub-hosted runner the Docker daemon starts empty, so `up` would build the missing
-images on its own. The explicit step is still the right shape: a compile error fails at step
-5 with the compiler output instead of surfacing as a `up --wait` timeout, and the job does
-not depend on implicit build behaviour. `docker/compose_test.sh` still relies on the
-implicit build. That is finding A against the script, it stays open, and `README.md` lines
-78-82 already tell a developer to use `--build`.
+On a GitHub-hosted runner the Docker daemon starts empty, so `up` builds the missing
+images on its own. The explicit step is still the right shape, for the reason measured
+under Tests: it names the step that failed rather than leaving `up` to report a compiler
+error under a step called `Bring up the stack`.
+`docker/compose_test.sh` still relies on the implicit build. That is finding A against the
+script, it stays open, and `README.md` lines 78-82 already tell a developer to use
+`--build`.
 
 ### Why check pool mode
 
@@ -146,14 +147,22 @@ skip assertion in step 9, and it gets proved the way ticket 014 proved its red r
    unrelated reason.
 4. Paste the run URL into the PR body, then delete the branch locally and on origin.
 
-**Probe 2, required. A compile error fails at the build step.** On the same probe branch,
-introduce a compile error in `services/internal/db/db.go`, leaving the rest of the job
-alone. The build step fails with the compiler output naming the file and line.
+**Probe 2, removed.** An earlier draft made the build step the subject of a probe, on the
+claim that a compile error would surface as an `up --wait` timeout instead of compiler
+output. Measured on Compose v2.38.2, that is not what happens. With no build step, `up`
+builds inline and fails with the same compiler output, in 173s against a 300s wait timeout,
+before it creates a container. There is no timeout to avoid, and no stale image to inherit,
+since a hosted runner's daemon starts empty.
 
-That is what the step buys. It is not a staleness guard on a hosted runner: the daemon
-starts empty every run, so there is no stale image to reuse, and `up` builds whatever is
-missing. Measured on PR #16: neutering step 5 and adding `services/migrations/00002_probe.sql`
-left the job green with `OK 00002_probe.sql` applied, because `up` built the images itself.
+What the explicit step buys is the name of the step that went red: `Build the service
+images` rather than `Bring up the stack`. That is worth having in a log and not worth a
+probe, so the probe goes. The step stays for the name and so the job does not depend on
+`up` building implicitly.
+
+Finding A stays open for `docker/compose_test.sh` and for a developer laptop, where the
+daemon is warm. On this machine, `docker compose up -d --wait` against an existing
+`distrolearn-api:dev` image came up green at exit 0 with a deliberate syntax error in
+`services/internal/db/db.go` still in the tree.
 
 **Probe 3, optional. The variants still bite.** Swap
 `set_config($1, $2, true)` for `false` in `db.SetTenant` and dispatch. The job goes red at
