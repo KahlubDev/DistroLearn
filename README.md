@@ -1,6 +1,7 @@
 # DistroLearn
 
 [![CI](https://github.com/KahlubDev/DistroLearn/actions/workflows/ci.yml/badge.svg)](https://github.com/KahlubDev/DistroLearn/actions/workflows/ci.yml)
+[![Compose](https://github.com/KahlubDev/DistroLearn/actions/workflows/compose.yml/badge.svg)](https://github.com/KahlubDev/DistroLearn/actions/workflows/compose.yml)
 
 Browser-based hands-on distributed-systems learning. Multi-tenant by institution,
 EU data residency option, ephemeral sandbox labs.
@@ -105,3 +106,10 @@ docker/compose_test.sh
 ```
 
 It runs all three variants and fails if any tenant can read another tenant's row.
+
+The same three variants also run in CI, in the `tenant isolation (compose)` check from
+`.github/workflows/compose.yml`. That job brings up this same compose stack, so a change to
+`compose.yaml` or to a migration is covered without anyone running the script by hand. It
+goes red when a variant skips as well as when one fails, which `make check` cannot do,
+since `go test` exits 0 on a skip. The runner and credential rules behind that job are in
+`docs/adr/0007-ci-execution-environment.md`.

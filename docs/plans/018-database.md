@@ -25,7 +25,8 @@ than being retried.
 
 Against a real Postgres and a real PgBouncer, never a mock. A fake pooler proves nothing
 about reset behavior. Ticket 017 (`docs/plans/017-local-compose.md`) supplies both in
-compose, so this test runs there and in CI from then on.
+compose, so this test runs there and in CI from then on. The CI job is
+`docs/plans/021-ci-integration.md`.
 
 ## Related
 
