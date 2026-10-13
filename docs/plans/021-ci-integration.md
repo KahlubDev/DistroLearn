@@ -146,10 +146,14 @@ skip assertion in step 9, and it gets proved the way ticket 014 proved its red r
    unrelated reason.
 4. Paste the run URL into the PR body, then delete the branch locally and on origin.
 
-**Probe 2, required. The build step is load-bearing.** On the same probe branch, add
-`services/migrations/00002_probe.sql` and temporarily change step 5 to a no-op. The job goes
-green with goose at version 1, reproducing finding A on the runner. Restore the build step
-and the job runs version 2. Both halves are in the PR body.
+**Probe 2, required. A compile error fails at the build step.** On the same probe branch,
+introduce a compile error in `services/internal/db/db.go`, leaving the rest of the job
+alone. The build step fails with the compiler output naming the file and line.
+
+That is what the step buys. It is not a staleness guard on a hosted runner: the daemon
+starts empty every run, so there is no stale image to reuse, and `up` builds whatever is
+missing. Measured on PR #16: neutering step 5 and adding `services/migrations/00002_probe.sql`
+left the job green with `OK 00002_probe.sql` applied, because `up` built the images itself.
 
 **Probe 3, optional. The variants still bite.** Swap
 `set_config($1, $2, true)` for `false` in `db.SetTenant` and dispatch. The job goes red at
