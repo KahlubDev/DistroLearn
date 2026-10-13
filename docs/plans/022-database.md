@@ -23,15 +23,15 @@ two findings the 017 review left open, and pins both decisions as tests.
 
 ## Blocked on
 
-Nothing starts until both amendments are accepted. The steps below say which is blocking.
+Both amendments were accepted on 2026-10-14, so the plan is unblocked. `app.user_id` remains blocked on an amendment that does not exist yet.
 
 | Step | Blocked on |
 |---|---|
-| Unexport `SetTenant`, make `InTenant` the only exported entry, move `tenant_isolation_test.go` to `package db` | 0008 |
-| Source-scanning test rejecting a bare tenant `SET` | 0008 |
-| README line on `docker compose restart pgbouncer` after a tenant-scope edit | 0008 |
-| `00002_memberships.sql` and the `memberships` row security | 0009 |
-| `TestTenantDirectory_ReadableUnscoped` | 0009 |
+| Unexport `SetTenant`, make `InTenant` the only exported entry, move `tenant_isolation_test.go` to `package db` | 0008, accepted 2026-10-14 |
+| Source-scanning test rejecting a bare tenant `SET` | 0008, accepted 2026-10-14 |
+| README line on `docker compose restart pgbouncer` after a tenant-scope edit | 0008, accepted 2026-10-14 |
+| `00002_memberships.sql` and the `memberships` row security | 0009, accepted 2026-10-14 |
+| `TestTenantDirectory_ReadableUnscoped` | 0009, accepted 2026-10-14 |
 | Postgres healthcheck window | none, can start immediately |
 
 ## Change

@@ -1,7 +1,7 @@
 # ADR 0009: Tenant directory rows stay readable to the application role
 
-- Status: proposed
-- Date: 2026-10-14
+- Status: accepted
+- Date: 2026-10-14, accepted 2026-10-14
 - Amends: `0003-tenancy-model.md`
 - Related: `docs/reviews/017-compose.md` finding 6, `docs/plans/022-database.md`
 
@@ -46,13 +46,19 @@ signal today.
 
 ## Consequences
 
+- **Finding 6 from `docs/reviews/017-compose.md` is closed as an accepted interim risk, not
+  fixed.** The application role can still read every tenant row. Accepting this ADR is the
+  decision that the read is correct for now, not evidence that the table is protected. A
+  later reader who finds the grant on `tenants` should find this ADR and the test named
+  below, and should not file it as a new finding.
 - The application role can read tenant names for every institution. If institution names
   turn out to be something a user without membership should not see, that is a product
   decision and this ADR is where it gets revisited. It is not a security defect today,
   because nothing in the scaffold treats the directory as confidential.
 - ADR 0003 layer 2 names membership as a check on every request. Until that table exists,
-  layers 3 and 4 are the only isolation the system has. `docs/reviews/017-compose.md`
-  already notes this.
+  layers 3 and 4 are the only isolation the system has. The window is bounded by one
+  migration, `00002_memberships.sql` in `docs/plans/022-database.md`, and it closes when
+  that lands.
 - When `memberships` lands it carries the boundary, and it gets row security on
   `tenant_id` in the same migration that creates it. `tenants` stays readable, because the
   membership table is now the thing that must not leak.

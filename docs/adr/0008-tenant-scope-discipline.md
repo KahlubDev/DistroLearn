@@ -1,7 +1,7 @@
 # ADR 0008: Tenant scope discipline in application code
 
-- Status: proposed
-- Date: 2026-10-14
+- Status: accepted
+- Date: 2026-10-14, accepted 2026-10-14
 - Amends: `0003-tenancy-model.md`, `0006-db-pooler.md`
 - Related: `docs/reviews/017-compose.md`, `docs/plans/022-database.md`
 
@@ -32,11 +32,17 @@ transaction. The second is the shape a careless handler reaches for.
 scope in application code with two controls.**
 
 **One entry point.** `InTenant` becomes the only exported way to set tenant scope.
-`SetTenant` is unexported. A caller that needs to hold a transaction open across several
-statements uses `InTenant` with a callback rather than setting the tenant itself. The
-ADR 0006 test needs two transactions open at once, so
-`services/internal/db/tenant_isolation_test.go` moves from `package db_test` to
-`package db` to reach the unexported helper. The three variants are unchanged.
+`SetTenant` is unexported. A request path that needs several statements in one transaction
+uses `InTenant` with a callback rather than setting the tenant itself.
+
+`InTenant` is the entry point for request paths, not a universal replacement for
+`SetTenant`. It opens and commits the transaction itself, so it cannot express two
+transactions held open at once, which is what the interleaved variant does. That is the one
+case that reaches past it, and the one reason
+`services/internal/db/tenant_isolation_test.go` moves from `package db_test` to `package db`
+to reach the unexported helper. The three variants are unchanged. If a future request path
+needs concurrent transactions under one tenant, it needs a decision rather than a
+reach-around, because that is the shape where the reset guarantee has to be re-argued.
 
 **One source-scanning test.** A test under `services/internal/db` reads the Go sources in
 `services/` and fails if the tenant GUC is set anywhere except the helper, and if
