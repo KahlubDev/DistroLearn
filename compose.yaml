@@ -42,8 +42,18 @@ services:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-distrolearn} -d ${POSTGRES_DB:-distrolearn}"]
       interval: 2s
       timeout: 5s
-      retries: 30
-      start_period: 5s
+      # A cold volume runs initdb with data checksums before the server binds TCP, and that
+      # outran the old budget of 5s + 30 retries at 2s, about 65 seconds. up --wait then
+      # failed with `dependency failed to start: container distrolearn-postgres-1 is
+      # unhealthy` while the entrypoint was still at `performing post-bootstrap
+      # initialization`. start_period 60s covers that whole phase, because a failing probe
+      # inside start_period does not count toward retries, so it is treated as starting up
+      # rather than failing. retries 60 covers the tail after the temporary init server
+      # stops and the real server binds TCP, which is what the -h 127.0.0.1 probe above
+      # waits for. Together that is 60 + 120 = 180 seconds before the container is called
+      # unhealthy, and up --wait keeps waiting instead of failing fast.
+      retries: 60
+      start_period: 60s
     # No host ports, so two stacks can run at once.
 
   pgbouncer:
